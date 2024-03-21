@@ -5,7 +5,8 @@ __all__ = ['LOG_LEVEL', 'FS', 'CHANNELS', 'DEPTH', 'N_OUT', 'N_CLASSES', 'MO_UNE
            'SimplifiablePrefixTree', 'IdExtractor', 'DataSetObject', 'psg_to_sleep_wake', 'get_activity_X_PSG_y',
            'rolling_window', 'apply_gausian_filter', 'fill_gaps_in_accelerometer_data', 'SleepWakeClassifier',
            'SGDLogisticRegression', 'median', 'clip_by_iqr', 'iqr_normalization_adaptive', 'cal_psd',
-           'MOResUNetPretrained', 'SplitMaker', 'LeaveOneOutSplitter', 'run_split', 'run_splits']
+           'MOResUNetPretrained', 'evaluate_mo_on_data_set', 'SplitMaker', 'LeaveOneOutSplitter', 'run_split',
+           'run_splits']
 
 # %% ../nbs/05_experiments.ipynb 4
 from typing import Dict, List, Tuple
@@ -395,6 +396,10 @@ def fill_gaps_in_accelerometer_data(acc: pl.DataFrame, smooth: bool = False, fin
     
     # median sampling rate (to account for missing data)
     sampling_period_s = acc[acc.columns[0]].diff().median() # 1 / sampling_rate_hz
+    print("sampling_period_s:", sampling_period_s)
+    if sampling_period_s == 0.0:
+        warnings.warn("Sampling period is 0.0. Returning None.")
+        return None
     
     # Step 0: Save the original 'timestamp' column as 'timestamp_raw'
     acc_resampled = acc.with_columns(acc[acc.columns[0]].alias('timestamp'))
@@ -833,7 +838,6 @@ class MOResUNetPretrained(SleepWakeClassifier):
             print(f"ID {id} {'psg' if psg is None else 'accelerometer'} not found in {data_set.name}")
             return None
         
-        print("sampling hz:", self.sampling_hz)
         accelerometer = fill_gaps_in_accelerometer_data(accelerometer, smooth=False, final_sampling_rate_hz=self.sampling_hz)
         stop_time = min(accelerometer[:, 0].max(), psg[:, 0].max())
         accelerometer = accelerometer.filter(accelerometer[:, 0] <= stop_time)
@@ -934,7 +938,33 @@ class MOResUNetPretrained(SleepWakeClassifier):
 
 
 
-# %% ../nbs/05_experiments.ipynb 31
+# %% ../nbs/05_experiments.ipynb 30
+from typing import Dict, Tuple
+
+def evaluate_mo_on_data_set(mo: MOResUNetPretrained | None = None, data_set: DataSetObject | None = None, exclude: List[str] = []) -> Tuple[Dict[str, dict], list]:
+    if mo is None:
+        mo = MOResUNetPretrained(sampling_hz=32)
+    if data_set is None:
+        raise ValueError("`data_set` must be provided.")
+    filtered_ids = [id for id in data_set.ids if id not in exclude]
+    mo_preprocessed_data = [
+        (d, i) 
+        for (d, i) in zip(
+            mo.prepare_set_for_training(data_set, filtered_ids),
+            filtered_ids) 
+        if d is not None
+    ]
+
+    evaluations: Dict[str, dict] = {}
+    for i, ((X, y), id) in enumerate(mo_preprocessed_data):
+        y_hat_proba = mo.predict_probabilities(X)
+        y_hat_sleep_proba = (1 - y_hat_proba[:, :, 0]).reshape(-1,)
+        analysis = split_analysis(y, y_hat_sleep_proba)
+        evaluations[id] = analysis
+        print(f"Processing {i+1} of {len(mo_preprocessed_data)} ({id})... AUROC: {analysis['auc']}")
+    return evaluations, mo_preprocessed_data
+
+# %% ../nbs/05_experiments.ipynb 32
 from typing import Type
 from tqdm import tqdm
 from sklearn.model_selection import LeaveOneOut
