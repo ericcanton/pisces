@@ -541,7 +541,13 @@ class SGDLogisticRegression(SleepWakeClassifier):
     def _fold(self, input_X: np.ndarray | pl.DataFrame) -> np.array:
         if isinstance(input_X, pl.DataFrame):
             input_X = input_X.to_numpy()
-        return rolling_window(input_X, self.input_dim)
+        folded_X = rolling_window(input_X, self.input_dim)
+        if folded_X.shape[0] == 0:
+            warnings.warn(f"input has {input_X.shape[0]} < {self.input_dim} samples. Returning a zero-padded array.")
+            padded = np.zeros((1, self.input_dim))
+            padded[0, :input_X.shape[0]] = input_X
+            folded_X = padded
+        return folded_X
     
     def _trim_labels(self, labels_y: pl.DataFrame) -> np.ndarray:
         start, end = self._indices_to_trim()
@@ -1018,7 +1024,7 @@ def split_analysis(y, y_hat_sleep_proba, sleep_accuracy: float = WASA_THRESHOLD,
     N = n_sleep + n_wake
 
     balancing_weights_ignore_mask = np.where(y_flat > 0, N / n_sleep, N / n_wake) \
-        if balancing else np.ones_like(y_flat)
+        if balancing else np.ones_like(y_flat, dtype=np.float32)
     balancing_weights_ignore_mask /= np.sum(balancing_weights_ignore_mask) # sums to 1.0
 
     # adjust y to match the lenght of y_hat, which was padded to fit model constraints
