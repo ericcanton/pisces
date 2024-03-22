@@ -406,8 +406,8 @@ def pad_to_hat(y: np.ndarray, y_hat: np.ndarray) -> np.ndarray:
     """
     pad = y_hat.shape[-1] - y.shape[-1]
     if pad < 0:
-        warnings.warn(f"y_hat is shorter than y by {pad} elements, returning y unchanged")
-        return y
+        warnings.warn(f"y_hat is shorter than y by {-pad} elements, trimming y")
+        return y[:pad]
     y_padded = np.pad(y, (0, pad), constant_values=0)
     return y_padded
 

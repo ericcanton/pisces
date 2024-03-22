@@ -2,11 +2,11 @@
 
 # %% auto 0
 __all__ = ['LOG_LEVEL', 'FS', 'CHANNELS', 'DEPTH', 'N_OUT', 'N_CLASSES', 'MO_UNET_CONFIG', 'MO_PREPROCESSING_CONFIG',
-           'SimplifiablePrefixTree', 'IdExtractor', 'DataSetObject', 'psg_to_sleep_wake', 'get_activity_X_PSG_y',
-           'rolling_window', 'apply_gausian_filter', 'fill_gaps_in_accelerometer_data', 'SleepWakeClassifier',
-           'SGDLogisticRegression', 'median', 'clip_by_iqr', 'iqr_normalization_adaptive', 'cal_psd',
-           'MOResUNetPretrained', 'evaluate_mo_on_data_set', 'SplitMaker', 'LeaveOneOutSplitter', 'run_split',
-           'run_splits']
+           'WASA_THRESHOLD', 'BALANCE_WEIGHTS', 'SimplifiablePrefixTree', 'IdExtractor', 'DataSetObject',
+           'psg_to_sleep_wake', 'get_activity_X_PSG_y', 'rolling_window', 'apply_gausian_filter',
+           'fill_gaps_in_accelerometer_data', 'SleepWakeClassifier', 'SGDLogisticRegression', 'median', 'clip_by_iqr',
+           'iqr_normalization_adaptive', 'cal_psd', 'parallel_execute', 'MOResUNetPretrained', 'SplitMaker',
+           'LeaveOneOutSplitter', 'run_split', 'run_splits', 'split_analysis', 'evaluate_mo_on_data_set']
 
 # %% ../nbs/05_experiments.ipynb 4
 from typing import Dict, List, Tuple
@@ -707,6 +707,39 @@ def _load_saved_keras():
 
 
 # %% ../nbs/05_experiments.ipynb 29
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor
+
+
+def parallel_execute(func, inputs: List, max_workers: int = None):
+    """
+    max_workers (int, optional): The number of workers to use for parallel processing. Defaults to None, which uses all available cores. Setting to a negative number leaves that many cores unused. For example, if my machine has 4 cores and I set max_workers to -1, then 3 = 4 - 1 cores will be used; if max_workers=-3 then 1 = 4 - 3 cores are used.
+    """
+    # Get the number of available CPU cores
+    num_cores = multiprocessing.cpu_count()
+    workers_to_use = max_workers if max_workers is not None else num_cores
+    if (workers_to_use > num_cores):
+        warnings.warn(f"Attempting to use {max_workers} but only have {num_cores}. Running with {num_cores} workers.")
+        workers_to_use = num_cores
+    if workers_to_use <= 0:
+        workers_to_use = num_cores + max_workers
+    if workers_to_use < 1:
+        # do this check second, NOT with elif, to verify we're still in a valid state
+        raise ValueError(f"With `max_workers` == {max_workers}, we end up with max_workers + num_cores ({max_workers} + {num_cores}) which is less than 1. This is an error.")
+
+    print(f"{parallel_execute.__name__}: Using {workers_to_use} of {num_cores} cores ({int(100 * workers_to_use / num_cores)}%) for parallel preprocessing.")
+    print(f"{parallel_execute.__name__}: This can cause memory or heat issues if  is too high; if you run into problems, call prepare_set_for_training() again with max_workers = -1, going more negative if needed. (See the docstring for more info.)")
+
+    # Create a pool of workers
+    with ProcessPoolExecutor(max_workers=workers_to_use) as executor:
+        results = list(
+            executor.map(
+                func, 
+                inputs
+            ))
+    return results
+
+# %% ../nbs/05_experiments.ipynb 30
 FS = 32
 CHANNELS = 2
 DEPTH = 9
@@ -747,8 +780,6 @@ MO_PREPROCESSING_CONFIG = {
     ]
 }
 
-import multiprocessing
-from concurrent.futures import ProcessPoolExecutor
 
 
 class MOResUNetPretrained(SleepWakeClassifier):
@@ -778,7 +809,6 @@ class MOResUNetPretrained(SleepWakeClassifier):
         Args:
             data_set (DataSetObject): The data set to prepare for training.
             ids (List[str], optional): The IDs to prepare. Defaults to None.
-            max_workers (int, optional): The number of workers to use for parallel processing. Defaults to None, which uses all available cores. Setting to a negative number leaves that many cores unused. For example, if my machine has 4 cores and I set max_workers to -1, then 3 = 4 - 1 cores will be used; if max_workers=-3 then 1 = 4 - 3 cores are used.
 
         Returns:
             List[Tuple[np.ndarray, np.ndarray] | None]: A list of tuples, where each tuple is the result of `get_needed_X_y` for a given ID. An empty list indicates an error occurred during processing.
@@ -789,28 +819,10 @@ class MOResUNetPretrained(SleepWakeClassifier):
         
         if ids:
             data_set_and_ids = [(data_set, id) for id in ids]
-            # Get the number of available CPU cores
-            num_cores = multiprocessing.cpu_count()
-            workers_to_use = max_workers if max_workers is not None else num_cores
-            if (workers_to_use > num_cores):
-                warnings.warn(f"Attempting to use {max_workers} but only have {num_cores}. Running with {num_cores} workers.")
-                workers_to_use = num_cores
-            if workers_to_use <= 0:
-                workers_to_use = num_cores + max_workers
-            if workers_to_use < 1:
-                # do this check second, NOT with elif, to verify we're still in a valid state
-                raise ValueError(f"With `max_workers` == {max_workers}, we end up with max_workers + num_cores ({max_workers} + {num_cores}) which is less than 1. This is an error.")
-
-            print(f"Using {workers_to_use} of {num_cores} cores ({int(100 * workers_to_use / num_cores)}%) for parallel preprocessing.")
-            print(f"This can cause memory or heat issues if  is too high; if you run into problems, call prepare_set_for_training() again with max_workers = -1, going more negative if needed. (See the docstring for more info.)")
-
-            # Create a pool of workers
-            with ProcessPoolExecutor(max_workers=workers_to_use) as executor:
-                results = list(
-                    executor.map(
-                        self.get_needed_X_y_from_pair, 
-                        data_set_and_ids
-                    ))
+            results = parallel_execute(
+                self.get_needed_X_y_from_pair, 
+                data_set_and_ids, 
+                max_workers=max_workers)
         else:
             warnings.warn("No IDs found in the data set.")
             return results
@@ -838,15 +850,19 @@ class MOResUNetPretrained(SleepWakeClassifier):
             print(f"ID {id} {'psg' if psg is None else 'accelerometer'} not found in {data_set.name}")
             return None
         
-        accelerometer = fill_gaps_in_accelerometer_data(accelerometer, smooth=False, final_sampling_rate_hz=self.sampling_hz)
-        stop_time = min(accelerometer[:, 0].max(), psg[:, 0].max())
-        accelerometer = accelerometer.filter(accelerometer[:, 0] <= stop_time)
-        psg = psg.filter(psg[:, 0] <= stop_time)
+        try:
+            accelerometer = fill_gaps_in_accelerometer_data(accelerometer, smooth=False, final_sampling_rate_hz=self.sampling_hz)
+            stop_time = min(accelerometer[:, 0].max(), psg[:, 0].max())
+            accelerometer = accelerometer.filter(accelerometer[:, 0] <= stop_time)
+            psg = psg.filter(psg[:, 0] <= stop_time)
 
 
-        mirrored_spectro = self._input_preprocessing(accelerometer)
+            mirrored_spectro = self._input_preprocessing(accelerometer)
 
-        return mirrored_spectro, psg_to_sleep_wake(psg)
+            return mirrored_spectro, psg_to_sleep_wake(psg)
+        except Exception as e:
+            print(f"Error preparing {id}: {e}")
+            return None
 
     def train(self, 
               examples_X: List[pl.DataFrame] = [], 
@@ -938,36 +954,13 @@ class MOResUNetPretrained(SleepWakeClassifier):
 
 
 
-# %% ../nbs/05_experiments.ipynb 30
-from typing import Dict, Tuple
-
-def evaluate_mo_on_data_set(mo: MOResUNetPretrained | None = None, data_set: DataSetObject | None = None, exclude: List[str] = []) -> Tuple[Dict[str, dict], list]:
-    if mo is None:
-        mo = MOResUNetPretrained(sampling_hz=32)
-    if data_set is None:
-        raise ValueError("`data_set` must be provided.")
-    filtered_ids = [id for id in data_set.ids if id not in exclude]
-    mo_preprocessed_data = [
-        (d, i) 
-        for (d, i) in zip(
-            mo.prepare_set_for_training(data_set, filtered_ids),
-            filtered_ids) 
-        if d is not None
-    ]
-
-    evaluations: Dict[str, dict] = {}
-    for i, ((X, y), id) in enumerate(mo_preprocessed_data):
-        y_hat_proba = mo.predict_probabilities(X)
-        y_hat_sleep_proba = (1 - y_hat_proba[:, :, 0]).reshape(-1,)
-        analysis = split_analysis(y, y_hat_sleep_proba)
-        evaluations[id] = analysis
-        print(f"Processing {i+1} of {len(mo_preprocessed_data)} ({id})... AUROC: {analysis['auc']}")
-    return evaluations, mo_preprocessed_data
-
 # %% ../nbs/05_experiments.ipynb 32
 from typing import Type
 from tqdm import tqdm
 from sklearn.model_selection import LeaveOneOut
+from sklearn.metrics import roc_auc_score, roc_curve, cohen_kappa_score
+
+from .utils import pad_to_hat
 
 
 class SplitMaker:
@@ -1014,4 +1007,73 @@ def run_splits(split_maker: SplitMaker, w: DataSetObject, swc_class: Type[SleepW
     
     return split_models, preprocessed_data, splits
 
+WASA_THRESHOLD = 0.93
+BALANCE_WEIGHTS = True
+
+def split_analysis(y, y_hat_sleep_proba, sleep_accuracy: float = WASA_THRESHOLD, balancing: bool = BALANCE_WEIGHTS):
+
+    y_flat = y.reshape(-1,)
+    n_sleep = np.sum(y_flat > 0)
+    n_wake = np.sum(y_flat == 0)
+    N = n_sleep + n_wake
+
+    balancing_weights_ignore_mask = np.where(y_flat > 0, N / n_sleep, N / n_wake) \
+        if balancing else np.ones_like(y_flat)
+    balancing_weights_ignore_mask /= np.sum(balancing_weights_ignore_mask) # sums to 1.0
+
+    # adjust y to match the lenght of y_hat, which was padded to fit model constraints
+    y_padded = pad_to_hat(y_flat, y_hat_sleep_proba)
+    # make a mask to ignore the padded values, so they aren't counted against us
+    mask = pad_to_hat(balancing_weights_ignore_mask, y_hat_sleep_proba)
+
+    # also ignore any unscored or missing values.
+    y_to_score = pad_to_hat(y_flat >= 0, y_hat_sleep_proba)
+    mask *= y_to_score
+    # roc_auc will complain if -1 is in y_padded
+    y_padded *= y_to_score 
+
+    # ROC analysis
+    fprs, tprs, thresholds = roc_curve(y_padded, y_hat_sleep_proba, sample_weight=mask)
+
+    # Sleep accuracy = (n sleep correct) / (n sleep) = TP/AP = TPR
+    wasa_threshold = thresholds[np.sum(tprs <= sleep_accuracy)]
+    y_guess = y_hat_sleep_proba > wasa_threshold
+
+    # # WASA X
+    guess_right = y_guess == y_padded
+    y_wake = y_padded == 0
+    wake_accuracy = np.sum(y_wake * guess_right * y_to_score) / np.sum(n_wake)
+     
+    return {
+        "y_padded": y_padded,
+        "y_hat": y_hat_sleep_proba,
+        "mask": mask,
+        "kappa": cohen_kappa_score(y_padded, y_guess, sample_weight=mask),
+        "auc": roc_auc_score(y_padded, y_hat_sleep_proba, sample_weight=mask),
+        "roc_curve": {"tprs": tprs,
+                      "fprs": fprs,
+                      "thresholds": thresholds
+        }, 
+        f"wasa{int(100 * sleep_accuracy)}_threshold": wasa_threshold,
+        f"wasa{int(100 * sleep_accuracy)}": wake_accuracy, 
+    }
+
+def evaluate_mo_on_data_set(mo: MOResUNetPretrained, data_set: DataSetObject, exclude: List[str] = []) -> Tuple[Dict[str, dict], list]:
+    filtered_ids = [id for id in data_set.ids if id not in exclude]
+    mo_preprocessed_data = [
+        (d, i) 
+        for (d, i) in zip(
+            mo.prepare_set_for_training(data_set, filtered_ids),
+            filtered_ids) 
+        if d is not None
+    ]
+
+    evaluations: Dict[str, dict] = {}
+    for i, ((X, y), id) in enumerate(mo_preprocessed_data):
+        y_hat_proba = mo.predict_probabilities(X)
+        y_hat_sleep_proba = (1 - y_hat_proba[:, :, 0]).reshape(-1,)
+        analysis = split_analysis(y, y_hat_sleep_proba)
+        evaluations[id] = analysis
+        print(f"Processing {i+1} of {len(mo_preprocessed_data)} ({id})... AUROC: {analysis['auc']}")
+    return evaluations, mo_preprocessed_data
 
