@@ -251,7 +251,7 @@ def plot_scores_PDF(scores: List[float], ax: plt.Axes = None):
     if ax is None:
         _, ax_ = plt.subplots()
     ax_.set_xlim(0, 1)
-    _ = ax_.hist(scores, bins=20, stacked=(scores and isinstance(scores[0], list)))
+    _ = ax_.hist(scores, bins=20)
 
     # plot the mean as a vertical 'tab:orange' line
     ax_.axvline(np.mean(scores), color='tab:orange', linestyle='--', label=f"Mean: {np.mean(scores):.3f}")

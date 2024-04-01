@@ -351,13 +351,23 @@ def get_activity_X_PSG_y(data_set: DataSetObject, id: str) -> Tuple[np.ndarray, 
 
     if activity_0 is None or psg_0 is None:
         return None
+    
+    # round the time column to the nearest second
+    activity_time_col = activity_0.columns[0]
+    activity_0 = activity_0.with_columns(pl.col(activity_time_col).round(0))
+
+    psg_time_col = psg_0.columns[0]
+    psg_0 = psg_0.with_columns(pl.col(psg_time_col).round(0))
 
     # trim the activity and psg data to both end when the 0th column (time) of either ends
+    start_time = max(activity_0[0, 0], psg_0[0, 0])
     end_time = min(activity_0[-1, 0], psg_0[-1, 0])
-    activity_0 = activity_0.filter(activity_0[:, 0] <= end_time)
-    psg_0 = psg_0.filter(psg_0[:, 0] <= end_time)
+    activity_0 = activity_0.filter((activity_0[activity_time_col] <= end_time) & (activity_0[activity_time_col] >= start_time))
+    psg_0 = psg_0.filter((psg_0[psg_time_col] <= end_time) & (psg_0[psg_time_col] >= start_time))
 
     X = activity_0[:, 1].to_numpy()
+    # Assuming that X has 15 second epochs, psg has 30 second epochs. So, we fold and sum the X values to match the psg epochs
+    # TODO: make this dynamic based on activity_0['time'].diff() and psg_0['time'].diff()
     # make the reshape(-1, 2) non-ragged 
     # remove the last element if the length is odd
     if res := X.shape[0] % 2:
@@ -365,6 +375,14 @@ def get_activity_X_PSG_y(data_set: DataSetObject, id: str) -> Tuple[np.ndarray, 
         X = X[:-res] 
     X = X.reshape((-1, 2)).sum(axis=1)
     y = psg_to_sleep_wake(psg_0)
+
+    if X.shape[0] != y.shape[0]:
+        # trim the longer one to match
+        min_len = min(X.shape[0], y.shape[0])
+        if not min_len:
+            return None
+        X = X[:min_len]
+        y = y[:min_len]
 
     return X, y
 
