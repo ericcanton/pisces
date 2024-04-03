@@ -11,7 +11,7 @@ model-specified formats and scoring methods, automated data set and
 subject/feature discovery based on a light folder structure.
 
 Also included is [an example
-notebook](analyses/stationary_vs_hybrid.ipynb) showing `pisces` being
+notebook](../analyses/stationary_vs_hybrid.ipynb) showing `pisces` being
 used for analysis in a forthcoming paper from Arcascope. That studies
 the potential impact to scoring accuracy that may occur when a sleep
 classifier is trained on stationary subjects in a sleep study, then is
@@ -24,13 +24,28 @@ include new models, datasets, and evaluation metrics.
 
 ## Installation
 
-We hope to make Pisces available on PyPi, but for the time being you clone this repository and install the package
-locally using:
+We will soon make Pisces available on PyPi, but for the time being you
+clone this repository and install the package locally.
+
+Start by making a conda environment with Python 3.11 and installing the
+requirements from file, replacing `{env_name}` with the name you’d like
+to give it, such as `pisces_env`:
+
+``` shell
+conda create -n {env_name} python=3.11
+conda activate {env_name}
+conda install --file conda_requirements.txt
+```
+
+In the same terminal (so that your new conda environment is active),
+navigate to the directory where you’d like to clone the package and run
+the following commands to clone it and use `pip` to install the package
+in an editable way with `-e .`
 
 ``` sh
 git clone https://github.com/Arcascope/pisces.git
 cd pisces
-pip install .
+pip install -e .
 ```
 
 ## Usage
