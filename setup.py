@@ -20,8 +20,12 @@ statuses = [ '1 - Planning', '2 - Pre-Alpha', '3 - Alpha',
     '4 - Beta', '5 - Production/Stable', '6 - Mature', '7 - Inactive' ]
 py_versions = '3.10 3.11'.split()
 
-requirements = shlex.split(cfg.get('requirements', ''))
-if cfg.get('pip_requirements'): requirements += shlex.split(cfg.get('pip_requirements', ''))
+# requirements = shlex.split(cfg.get('requirements', ''))
+# if cfg.get('pip_requirements'): requirements += shlex.split(cfg.get('pip_requirements', ''))
+
+with open('requirements.txt', encoding='utf-8') as f:
+    requirements = f.read().splitlines()
+
 min_python = cfg['min_python']
 lic = licenses.get(cfg['license'].lower(), (cfg['license'], None))
 dev_requirements = (cfg.get('dev_requirements') or '').split()
@@ -49,5 +53,3 @@ setuptools.setup(
         'nbdev': [f'{cfg.get("lib_path")}={cfg.get("lib_path")}._modidx:d']
     },
     **setup_cfg)
-
-
