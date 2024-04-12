@@ -27,14 +27,13 @@ include new models, datasets, and evaluation metrics.
 We will soon make Pisces available on PyPi, but for the time being you
 clone this repository and install the package locally.
 
-Start by making a conda environment with Python 3.11 and installing the
+Start by making a python or conda environment with Python 3.11 and installing the
 requirements from file, replacing `{env_name}` with the name you’d like
 to give it, such as `pisces_env`:
 
 ``` shell
 conda create -n {env_name} python=3.11
 conda activate {env_name}
-conda install --file conda_requirements.txt
 ```
 
 In the same terminal (so that your new conda environment is active),
@@ -47,6 +46,10 @@ git clone https://github.com/Arcascope/pisces.git
 cd pisces
 pip install -e .
 ```
+
+### Common issues
+
+You may end up with a version of Keras incompatible with the marshalled data in `pisces/cached_models`. In that case, re-run the generation notebook `./analyses/convert_mads_olsen_model_to_keras.ipynb`
 
 ## Usage
 
