@@ -153,3 +153,5 @@ checklink/cookies.txt
 
 # User custom
 data_sets/*
+.pisces/*
+.venv/*
