@@ -11,10 +11,13 @@ contourpy==1.2.1
 cycler==0.12.1
 debugpy==1.8.1
 decorator==5.1.1
+execnb==0.1.5
 executing==2.0.1
+fastcore==1.5.29
 flatbuffers==24.3.25
 fonttools==4.51.0
 gast==0.5.4
+ghapi==1.0.5
 google-auth==2.29.0
 google-auth-oauthlib==1.2.0
 google-pasta==0.2.0
@@ -23,11 +26,13 @@ h5py==3.11.0
 idna==3.7
 ipykernel==6.29.4
 ipython==8.23.0
+ipywidgets==8.0.4
 jedi==0.19.1
 Jinja2==3.1.3
 joblib==1.4.0
 jupyter_client==8.6.1
 jupyter_core==5.7.2
+jupyterlab_widgets==3.0.10
 keras==2.15.0
 kiwisolver==1.4.5
 lazy_loader==0.4
@@ -41,6 +46,7 @@ mdurl==0.1.2
 ml-dtypes==0.3.2
 mne==1.6.1
 namex==0.0.7
+nbdev==2.3.13
 nest-asyncio==1.6.0
 numpy==1.26.4
 oauthlib==3.2.2
@@ -51,6 +57,7 @@ pandas==2.2.2
 parso==0.8.4
 pexpect==4.9.0
 pillow==10.3.0
+-e git+ssh://git@github.com/Arcascope/pisces.git@675847d1561b3981b99883c0fd7820f5509727a4#egg=pisces
 platformdirs==4.2.0
 polars==0.20.19
 pooch==1.8.1
@@ -65,6 +72,7 @@ Pygments==2.17.2
 pyparsing==3.1.2
 python-dateutil==2.9.0.post0
 pytz==2024.1
+PyYAML==6.0.1
 pyzmq==25.1.2
 requests==2.31.0
 requests-oauthlib==2.0.0
@@ -89,6 +97,8 @@ typeguard==2.13.3
 typing_extensions==4.11.0
 tzdata==2024.1
 urllib3==2.2.1
+watchdog==4.0.0
 wcwidth==0.2.13
 Werkzeug==3.0.2
+widgetsnbextension==4.0.10
 wrapt==1.14.1
