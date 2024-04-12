@@ -51,7 +51,6 @@ pandas==2.2.2
 parso==0.8.4
 pexpect==4.9.0
 pillow==10.3.0
--e git+ssh://git@github.com/Arcascope/pisces.git@a4bc950be32700e9d97f3d17df90d3685ac747b7#egg=pisces
 platformdirs==4.2.0
 polars==0.20.19
 pooch==1.8.1
