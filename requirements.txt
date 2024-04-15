@@ -97,6 +97,7 @@ parso==0.8.4
 pexpect==4.9.0
 pillow==10.3.0
 platformdirs==4.2.0
+polars==0.20.19
 pooch==1.8.1
 prometheus_client==0.20.0
 promise==2.3
