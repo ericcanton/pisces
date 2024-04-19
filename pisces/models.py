@@ -233,7 +233,7 @@ import multiprocessing
 from concurrent.futures import ProcessPoolExecutor
 import warnings
 
-from .mads_olsen_support import MO_PREPROCESSING_CONFIG, MO_UNET_CONFIG, FS, load_saved_keras
+from .mads_olsen_support import *
 
 
 class MOResUNetPretrained(SleepWakeClassifier):
