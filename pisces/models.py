@@ -234,6 +234,7 @@ from concurrent.futures import ProcessPoolExecutor
 import warnings
 
 from .mads_olsen_support import *
+from .utils import split_analysis
 
 
 class MOResUNetPretrained(SleepWakeClassifier):
@@ -421,6 +422,25 @@ class MOResUNetPretrained(SleepWakeClassifier):
         spec /= 3.0
 
         return spec
+
+    def evaluate_data_set(self, data_set: DataSetObject, exclude: List[str] = [], max_workers: int = None) -> Tuple[Dict[str, dict], list]:
+        filtered_ids = [id for id in data_set.ids if id not in exclude]
+        mo_preprocessed_data = [
+            (d, i) 
+            for (d, i) in zip(
+                self.prepare_set_for_training(data_set, filtered_ids, max_workers=max_workers),
+                filtered_ids) 
+            if d is not None
+        ]
+
+        evaluations: Dict[str, dict] = {}
+        for i, ((X, y), id) in enumerate(mo_preprocessed_data):
+            y_hat_proba = self.predict_probabilities(X)
+            y_hat_sleep_proba = (1 - y_hat_proba[:, :, 0]).reshape(-1,)
+            analysis = split_analysis(y, y_hat_sleep_proba)
+            evaluations[id] = analysis
+            print(f"Processing {i+1} of {len(mo_preprocessed_data)} ({id})... AUROC: {analysis['auc']}")
+        return evaluations, mo_preprocessed_data
 
 
 
