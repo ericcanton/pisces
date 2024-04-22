@@ -206,11 +206,11 @@ MO_PREPROCESSING_CONFIG = {
 }
 
 # %% ../nbs/03_mads_olsen_support.ipynb 7
-from tensorflow.keras import layers
-from tensorflow.keras.models import Model
+from keras import layers
+from keras.models import Model
 from keras_cv.layers import StochasticDepth
 import numpy as np
-from tensorflow.keras.regularizers import l2
+from keras.regularizers import l2
 
 def factory_ResUNet(input_shape,
             num_classes,
