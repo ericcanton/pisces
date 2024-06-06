@@ -22,7 +22,7 @@ from sklearn.linear_model import SGDClassifier
 from sklearn.pipeline import make_pipeline
 import numpy as np
 
-from .data_sets import DataSetObject
+from .data_sets import DataSetObject, DataSetSubject
 
 class SleepClassifierMode(Enum):
     BINARY = 1
@@ -173,16 +173,17 @@ class MOResUNetPretrained(SleepWakeClassifier):
     def __init__(
         self,
         sampling_hz: int = FS,
+        tf_model: keras.Model | None = None,
     ) -> None:
         """
         Initialize the MOResUNetPretrained classifier.
 
         Args:
             sampling_hz (int, optional): The sampling frequency in Hz. Defaults to FS.
+            tf_model (keras.Model | None, optional): The TensorFlow model to use. Defaults to None, which will load the saved model.
         """
         super().__init__()
-        # self.tf_model = load_saved_keras()
-        self._tf_model = None
+        self._tf_model = tf_model
         self.sampling_hz = sampling_hz
     
     @property
@@ -193,7 +194,8 @@ class MOResUNetPretrained(SleepWakeClassifier):
 
     def prepare_set_for_training(self, 
                                  data_set: DataSetObject, ids: List[str] | None = None,
-                                 max_workers: int | None = None 
+                                 max_workers: int | None = None,
+                                 N4: bool = True, # Whether the data contains N4 stage or not
                                  ) -> List[Tuple[np.ndarray, np.ndarray] | None]:
         """
         Prepare the data set for training.
@@ -202,6 +204,7 @@ class MOResUNetPretrained(SleepWakeClassifier):
             data_set (DataSetObject): The data set to prepare for training.
             ids (List[str], optional): The IDs to prepare. Defaults to None.
             max_workers (int, optional): The number of workers to use for parallel processing. Defaults to None, which uses all available cores. Setting to a negative number leaves that many cores unused. For example, if my machine has 4 cores and I set max_workers to -1, then 3 = 4 - 1 cores will be used; if max_workers=-3 then 1 = 4 - 3 cores are used.
+            N4 (bool, List[bool], optional): Whether the data contains N4 stage or not. Defaults to True.
 
         Returns:
             List[Tuple[np.ndarray, np.ndarray] | None]: A list of tuples, where each tuple is the result of `get_needed_X_y` for a given ID. An empty list indicates an error occurred during processing.
@@ -211,7 +214,7 @@ class MOResUNetPretrained(SleepWakeClassifier):
         results = []
         
         if ids:
-            data_set_and_ids = [(data_set, id) for id in ids]
+            subjects = [DataSetSubject(data_set, ids[i], N4) for i in range(len(ids))]
             # Get the number of available CPU cores
             num_cores = multiprocessing.cpu_count()
             workers_to_use = max_workers if max_workers is not None else num_cores
@@ -231,34 +234,31 @@ class MOResUNetPretrained(SleepWakeClassifier):
             with ProcessPoolExecutor(max_workers=workers_to_use) as executor:
                 results = list(
                     executor.map(
-                        self.get_needed_X_y_from_pair, 
-                        data_set_and_ids
+                        self.get_needed_X_y, 
+                        subjects
                     ))
         else:
             warnings.warn("No IDs found in the data set.")
             return results
         return results
     
-    def get_needed_X_y_from_pair(self, pair: Tuple[DataSetObject, str]) -> Tuple[np.ndarray, np.ndarray] | None:
+
+    def get_needed_X_y(self, subject: DataSetSubject) -> Tuple[np.ndarray, np.ndarray] | None:
         """
-        Get the needed X and y data from a pair of data set and ID.
+        Get the X and y data needed for training from a given subject.
 
         Args:
-            pair (Tuple[DataSetObject, str]): The pair of data set and ID.
+            subject (DataSetSubject): The subject to get the data from containing data_set, id, and N4 information.
 
         Returns:
-            Tuple[np.ndarray, np.ndarray] | None: The X and y data as a tuple, or None if an error occurred.
+            Tuple[np.ndarray, np.ndarray] | None: A tuple containing the X and y data needed for training. If the data is not found, None is returned.
         """
-        data_set, id = pair
-        print(f"getting needed X, y for {id}")
-        return self.get_needed_X_y(data_set, id)
-    
-    def get_needed_X_y(self, data_set: DataSetObject, id: str) -> Tuple[np.ndarray, np.ndarray] | None:
-        accelerometer = data_set.get_feature_data("accelerometer", id)
-        psg = data_set.get_feature_data("psg", id)
+        id = subject.id
+        accelerometer = subject.data_set.get_feature_data("accelerometer", id)
+        psg = subject.data_set.get_feature_data("psg", id)
 
         if accelerometer is None or psg is None:
-            print(f"ID {id} {'psg' if psg is None else 'accelerometer'} not found in {data_set.name}")
+            print(f"ID {id} {'psg' if psg is None else 'accelerometer'} not found in {subject.data_set.name}")
             return None
         
         print("sampling hz:", self.sampling_hz)
@@ -272,7 +272,7 @@ class MOResUNetPretrained(SleepWakeClassifier):
         mirrored_spectro = self._input_preprocessing(accelerometer)
 
         # return mirrored_spectro, psg_to_sleep_wake(psg)
-        return mirrored_spectro, psg_to_WLDM(psg)
+        return mirrored_spectro, psg_to_WLDM(psg, subject.N4)
 
     def train(self, 
               examples_X: List[pl.DataFrame] = [], 
@@ -315,14 +315,17 @@ class MOResUNetPretrained(SleepWakeClassifier):
 
         self.tf_model.compile(
             optimizer=keras.optimizers.RMSprop(learning_rate=1e-5), 
-            loss=keras.losses.SparseCategoricalCrossentropy())
-        self.tf_model.fit(
+            loss=keras.losses.SparseCategoricalCrossentropy(),
+            metrics=[keras.metrics.SparseCategoricalAccuracy()],
+            weighted_metrics=[])
+        fit_result = self.tf_model.fit(
             Xs_c, 
             ys_c * weights,
             batch_size=batch_size,
             epochs=epochs,
             sample_weight=weights,
             validation_split=0.1)
+        return fit_result
 
     def predict(self, sample_X: np.ndarray | pl.DataFrame) -> np.ndarray:
         return np.argmax(self.predict_probabilities(sample_X), axis=1)
@@ -404,12 +407,17 @@ class MOResUNetPretrained(SleepWakeClassifier):
 
         return spec
 
-    def evaluate_data_set(self, data_set: DataSetObject, exclude: List[str] = [], max_workers: int = None) -> Tuple[Dict[str, dict], list]:
+    def evaluate_data_set(self, 
+                          data_set: DataSetObject, 
+                          exclude: List[str] = [],
+                          max_workers: int = None,
+                          N4: bool = True, # Whether the data contains N4 stage or not.
+                          ) -> Tuple[Dict[str, dict], list]:
         filtered_ids = [id for id in data_set.ids if id not in exclude]
         mo_preprocessed_data = [
             (d, i) 
             for (d, i) in zip(
-                self.prepare_set_for_training(data_set, filtered_ids, max_workers=max_workers),
+                self.prepare_set_for_training(data_set, filtered_ids, max_workers=max_workers, N4=N4),
                 filtered_ids) 
             if d is not None
         ]
@@ -450,15 +458,17 @@ def run_split(train_indices,
         for i in train_indices
         if preprocessed_data_set[i][0] is not None
     ]
-    swc.train(pairs_Xy=training_pairs, epochs=epochs)
+    train_result = swc.train(pairs_Xy=training_pairs, epochs=epochs)
 
-    return swc
+    return swc, train_result
 
 def run_splits(split_maker: SplitMaker, w: DataSetObject, 
                swc_class: Type[SleepWakeClassifier], 
                exclude: List[str] = [],
                preprocessed_data: List[np.ndarray] | None = None,
-               epochs: int = 10) -> Tuple[
+               epochs: int = 10,
+               N4: bool = True, # Whether the data contains N4 stage or not
+               ) -> Tuple[
         List[SleepWakeClassifier], 
         List[np.ndarray],
         List[List[List[int]]]]:
@@ -468,21 +478,24 @@ def run_splits(split_maker: SplitMaker, w: DataSetObject,
     ids_to_split = [
         i for i in w.ids if i not in exclude
     ]
+    train_results = []
 
-    preprocessed_data = [(swc_class().get_needed_X_y(w, i), i) for i in ids_to_split] \
+    subjects = [DataSetSubject(w, i, N4) for i in ids_to_split]
+    preprocessed_data = [(swc_class().get_needed_X_y(s)) for s in subjects] \
         if preprocessed_data is None else preprocessed_data
 
     # for train_index, test_index in tqdm(split_maker.split(ids_to_split)):
     for train_index, test_index in tqdm(split_maker.split(preprocessed_data)):
         if preprocessed_data[test_index[0]][0] is None:
             continue
-        model = run_split(train_indices=train_index,
-                        preprocessed_data_set=preprocessed_data,
-                        swc=swc_class(),
-                        epochs=epochs)
+        model, train_result = run_split(train_indices=train_index, 
+                                        preprocessed_data_set=preprocessed_data, 
+                                        swc=swc_class(), 
+                                        epochs=epochs)
         split_models.append(model)
         test_indices.append(test_index[0])
         splits.append([train_index, test_index])
+        train_results.append(train_result)
         # try:
         #     model = run_split(train_indices=train_index,
         #                     preprocessed_data_set=preprocessed_data,
@@ -493,6 +506,6 @@ def run_splits(split_maker: SplitMaker, w: DataSetObject,
         # except Exception as e:
         #     print(f"Training failed for {ids_to_split[test_index[0]]}")
     
-    return split_models, preprocessed_data, splits
+    return split_models, preprocessed_data, splits, train_results
 
 
