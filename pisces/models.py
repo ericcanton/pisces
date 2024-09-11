@@ -110,6 +110,15 @@ def train_pipeline(classifier: SleepWakeClassifier,
         # we know that examples_X and examples_y are both truthy, hence non-empty lists
         assert (len(examples_X) == len(examples_y))
 
+    # for j in range(len(examples_y)):
+    #     if len(examples_y[j].shape) == 1 or examples_y[j].shape[1] == 1:
+    #         print(f"reshaping {examples_y[j].shape}")
+    #         examples_y[j] = examples_y[j].reshape(-1, 1)
+    #         print("now shaped to", examples_y[j].shape)
+    examples_y = [
+        y.reshape(-1, )
+        for y in examples_y]
+        #  if len(y.shape) == 1 or y.shape[1] == 1 else y ]
 
     Xs = np.concatenate(examples_X, axis=0)
     ys = np.concatenate(examples_y, axis=0)
