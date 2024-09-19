@@ -394,6 +394,7 @@ def run_split(train_indices,
             f'{swc.model_pipeline_name}__batch_size': 1,
             f'{swc.model_pipeline_name}__validation_split': 0.1
         }
+        print(swc.pipeline.named_steps)
         result = swc.train(pairs_Xy=training_pairs, **extra_params)
     else:
         result = swc.train(pairs_Xy=training_pairs)
