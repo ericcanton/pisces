@@ -80,7 +80,7 @@ def auroc(y_true, y_pred_prob, convert_from_wldm=True):
     return auc_score_value
 
 
-def calculate_metrics_from_splits(data_processor, models, splits):
+def calculate_metrics_from_splits(preprocessed_data, models, splits):
     """Once we have the trained models and the splits, we can calculate the metrics."""
     metrics = {
         'sw_accuracy': [],
@@ -88,17 +88,32 @@ def calculate_metrics_from_splits(data_processor, models, splits):
         'auc': []
     }
     convert_from_wldm = False
-    for idx, model in enumerate(models):
-        _, test_idxs = splits[idx]
-        for test_idx in test_idxs:
-            X_test, y_true = data_processor.get_1D_X_y(test_idx)
-            if X_test is None or y_true is None:
-                continue
-            y_prob = model.predict_probabilities(X_test)
-            sw_accuracy_value = sw_accuracy(y_true, y_prob)
-            wasa_value = wasa(y_true, y_prob, convert_from_wldm=convert_from_wldm)
-            auc_value = auroc(y_true, y_prob, convert_from_wldm=convert_from_wldm)
-            metrics['sw_accuracy'].append(sw_accuracy_value)
-            metrics['wasa'].append(wasa_value)
-            metrics['auc'].append(auc_value)
+    for model_idx, model in enumerate(models):
+        print(f"Model {model_idx}")
+        for idx, test_idxs in enumerate(splits):
+            print(f"Split {idx}, test_idxs {test_idxs}")
+            for test_idx in test_idxs[1]:
+                print(f"Test idx {test_idx}")
+                X_test, y_true = preprocessed_data[test_idx]
+                if X_test is None or y_true is None:
+                    continue
+                y_prob = model.predict_probabilities(X_test)
+                sw_accuracy_value = sw_accuracy(y_true, y_prob)
+                wasa_value = wasa(y_true, y_prob, convert_from_wldm=convert_from_wldm)
+                auc_value = auroc(y_true, y_prob, convert_from_wldm=convert_from_wldm)
+                metrics['sw_accuracy'].append(sw_accuracy_value)
+                metrics['wasa'].append(wasa_value)
+                metrics['auc'].append(auc_value)
+        # _, test_idxs = splits[idx]
+        # for test_idx in test_idxs:
+        #     X_test, y_true = data_processor.get_1D_X_y(test_idx)
+        #     if X_test is None or y_true is None:
+        #         continue
+        #     y_prob = model.predict_probabilities(X_test)
+        #     sw_accuracy_value = sw_accuracy(y_true, y_prob)
+        #     wasa_value = wasa(y_true, y_prob, convert_from_wldm=convert_from_wldm)
+        #     auc_value = auroc(y_true, y_prob, convert_from_wldm=convert_from_wldm)
+        #     metrics['sw_accuracy'].append(sw_accuracy_value)
+        #     metrics['wasa'].append(wasa_value)
+        #     metrics['auc'].append(auc_value)
     return metrics
