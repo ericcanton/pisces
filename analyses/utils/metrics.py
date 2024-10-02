@@ -96,6 +96,9 @@ def calculate_metrics_from_splits(preprocessed_data, models, splits):
                 # print(f"Test idx {test_idx}")
                 X_test, y_true = preprocessed_data[test_idx]
                 if X_test is None or y_true is None:
+                    print(f"Skipping test_idx {test_idx} due to missing data")
+                    print(f"X_test: {X_test}")
+                    print(f"y_true: {y_true}")
                     continue
                 y_prob = model.predict_probabilities(X_test)
                 sw_accuracy_value = sw_accuracy(y_true, y_prob)

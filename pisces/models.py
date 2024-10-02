@@ -116,13 +116,14 @@ def train_pipeline(classifier: SleepWakeClassifier,
     #         examples_y[j] = examples_y[j].reshape(-1, 1)
     #         print("now shaped to", examples_y[j].shape)
     examples_y = [
-        y.reshape(-1, )
-        for y in examples_y]
-        #  if len(y.shape) == 1 or y.shape[1] == 1 else y ]
+        y.reshape(-1, ) if len(y.shape) == 1 or y.shape[1] == 1 else y 
+        for y in examples_y
+       ]
 
     Xs = np.concatenate(examples_X, axis=0)
     ys = np.concatenate(examples_y, axis=0)
     print(f"Training on {len(Xs)} examples")
+    print(f"Training on labels with shape {ys.shape}")
 
     selector = ys >= 0
 
@@ -395,10 +396,12 @@ def run_split(train_indices,
     if do_not_train:
         return swc, []
     training_pairs = [
-        [preprocessed_data_set[i][0], preprocessed_data_set[i][1].reshape(1, -1)]
+        # [preprocessed_data_set[i][0], preprocessed_data_set[i][1].reshape(1, -1)]
+        [preprocessed_data_set[i][0], preprocessed_data_set[i][1]]
         for i in train_indices
         if preprocessed_data_set.get(i) is not None
     ]
+    print(f"Training on labels with shape {training_pairs[0][1].shape}")
     if isinstance(swc, MOResUNetPretrained):
         extra_params = {
             f'{swc.model_pipeline_name}__epochs': epochs,
