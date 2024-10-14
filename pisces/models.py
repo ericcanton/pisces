@@ -116,7 +116,7 @@ def train_pipeline(classifier: SleepWakeClassifier,
     #         examples_y[j] = examples_y[j].reshape(-1, 1)
     #         print("now shaped to", examples_y[j].shape)
     examples_y = [
-        y.reshape(-1, ) if len(y.shape) == 1 or y.shape[1] == 1 else y 
+        y.reshape(1, -1, ) if len(y.shape) == 1 or y.shape[1] == 1 else y 
         for y in examples_y
        ]
 
@@ -241,15 +241,14 @@ class MOResUNetPretrained(SleepWakeClassifier):
                 raise ValueError("Model input must be set to Spectrogram on the data processor")
         self.initial_lr = initial_lr
 
-        self.model = model
-        if model is None and not lazy_model_loading:
-            self.load_model(force=True)
-
         super().__init__(
-            model=self.model,
+            model=None,
             data_processor=data_processor,
         )
 
+        self.model = model
+        if model is None and not lazy_model_loading:
+            self.load_model(force=True)
         
         # set up training params using the named step format of a pipeline.fit **kwargs
         self.training_params = {
@@ -408,7 +407,6 @@ def run_split(train_indices,
             f'{swc.model_pipeline_name}__batch_size': 1,
             f'{swc.model_pipeline_name}__validation_split': 0.1
         }
-        print(swc.pipeline.named_steps)
         result = swc.train(pairs_Xy=training_pairs, **extra_params)
     else:
         result = swc.train(pairs_Xy=training_pairs)
