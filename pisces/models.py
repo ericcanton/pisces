@@ -326,9 +326,12 @@ class MOResUNetPretrained(SleepWakeClassifier):
         return np.argmax(self.predict_probabilities(sample_X), axis=1)
 
     def predict_probabilities(self, sample_X: np.ndarray | pl.DataFrame) -> np.ndarray:
+        return softmax(self.predict_logits(sample_X), axis=1)
+    
+    def predict_logits(self, sample_X: np.ndarray | pl.DataFrame) -> np.ndarray:
         if isinstance(sample_X, pl.DataFrame):
             sample_X = sample_X.to_numpy()
-        return softmax(self._evaluate_tf_model(sample_X)[0], axis=1)
+        return self._evaluate_tf_model(sample_X)[0]
 
     def _evaluate_tf_model(self, inputs: np.ndarray) -> np.ndarray:
         inputs = inputs.astype(np.float32)
