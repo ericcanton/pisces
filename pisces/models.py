@@ -393,7 +393,7 @@ class LeaveOneOutSplitter(SplitMaker):
 def run_split(train_indices, 
               preprocessed_data_set: List[Tuple[np.ndarray, np.ndarray]],
               swc: SleepWakeClassifier,
-              epochs: int| None, 
+              epochs: int| None = None, 
               do_not_train: bool = False) -> Tuple[SleepWakeClassifier, List[float]]:
     if do_not_train:
         return swc, []
