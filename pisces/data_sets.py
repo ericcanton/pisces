@@ -838,6 +838,8 @@ class DataProcessor:
         """
         if isinstance(accelerometer, pl.DataFrame):
             acc = accelerometer.to_numpy()
+        elif isinstance(accelerometer, np.ndarray):
+            acc = accelerometer
         else:
             raise ValueError("accelerometer must be a polars DataFrame")
 
