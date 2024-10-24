@@ -826,12 +826,12 @@ class DataProcessor:
             # Concatenate input features alongside the first dimension
             X = np.concatenate(interpolated_features, axis=1)
             y = filtered_labels[:, 1].to_numpy()
+            return X, y
         except Exception as e:
             warnings.warn(f"Error processing data for {id}:\n{e}")
             return (None, None)
-        return X, y
     
-    def accelerometer_to_spectrogram(self, accelerometer: pl.DataFrame) -> np.ndarray:
+    def accelerometer_to_spectrogram(self, accelerometer: pl.DataFrame | np.ndarray) -> np.ndarray:
         """
         Implementation by Mads Olsen at https://github.com/MADSOLSEN/SleepStagePrediction
         with minor modifications.
@@ -841,7 +841,7 @@ class DataProcessor:
         elif isinstance(accelerometer, np.ndarray):
             acc = accelerometer
         else:
-            raise ValueError("accelerometer must be a polars DataFrame")
+            raise ValueError("accelerometer must be a numpy array or polars DataFrame")
 
         x_ = acc[:, 1]
         y_ = acc[:, 2]
