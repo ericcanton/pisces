@@ -87,7 +87,6 @@ def iqr_normalization_adaptive(x, fs, median_window, iqr_window):
         )
 
         # preallocation
-        x_med = np.ones((x.shape)) * np.median(x_)
         x_iqr_up = np.ones((x.shape)) * np.quantile(x_, iqr_upper)
         x_iqr_lo = np.ones((x.shape)) * np.quantile(x_, iqr_lower)
 
