@@ -1,4 +1,5 @@
 import os
+import sys
 import warnings
 from dataclasses import dataclass
 import time
@@ -7,27 +8,7 @@ import datetime
 import numpy as np
 import matplotlib.pyplot as plt
 
-# %%
-from keras.layers import (
-    Input, Conv2D, MaxPooling2D, UpSampling2D, Concatenate, BatchNormalization, Activation,
-    AveragePooling2D, Reshape, GlobalAveragePooling2D, Lambda
-)
-from keras.models import Model
-import jax.numpy as jnp
-
-import keras
-import tensorflow as tf
-from keras.callbacks import TensorBoard, ReduceLROnPlateau
-from sklearn.model_selection import LeaveOneOut
-from tqdm import tqdm
-
-
-from examples.NHRC.nhrc_utils.analysis import stages_map
-from examples.NHRC.nhrc_utils.new_cnn import NEW_INPUT_SHAPE
-from src.constants import ACC_HZ
-
-
-from examples.NHRC.nhrc_utils.new_cnn import NEW_INPUT_SHAPE
+from examples.NHRC.wasa_metric import WASAMetric
 
 # Use jax backend
 # on macOS, this is one of the better out-of-the-box GPU options
@@ -35,7 +16,37 @@ from examples.NHRC.nhrc_utils.new_cnn import NEW_INPUT_SHAPE
 os.environ["KERAS_BACKEND"] = "jax"
 
 # %%
+import keras
+from keras.layers import (
+    Input, Conv2D, MaxPooling2D, UpSampling2D, Concatenate, BatchNormalization, Activation,
+    AveragePooling2D, Reshape, GlobalAveragePooling2D, Lambda
+) # type: ignore
+from keras.models import Model # type: ignore
+from keras.callbacks import TensorBoard, ReduceLROnPlateau, Callback # type: ignore
+import jax.numpy as jnp
+
+import tensorflow as tf
+from sklearn.model_selection import LeaveOneOut
+from tqdm import tqdm
+
+
+from examples.NHRC.nhrc_utils.analysis import find_best_threshold, stages_map
+from examples.NHRC.nhrc_utils.new_cnn import NEW_INPUT_SHAPE
+from src.constants import ACC_HZ
+
+
+
+# %%
 from src.preprocess_and_save import do_preprocessing, big_specgram_process
+
+import keras
+import jax.numpy as jnp
+import tensorflow as tf
+
+
+
+import jax
+import jax.numpy as jnp
 
 # %%
 def add_rgb_legend(ax):
@@ -91,16 +102,6 @@ def segmentation_model(input_shape=NEW_INPUT_SHAPE, num_classes=4):
     c2 = BatchNormalization()(c2)
     p2 = MaxPooling2D((2, 2))(c2)  # Further Downsampling
     
-    # c3 = Conv2D(256, (3, 3), activation='relu', padding='same')(p2)
-    # c3 = BatchNormalization()(c3)
-    # p3 = MaxPooling2D((2, 2))(c3)  # Bottleneck
-    
-    # # Decoder
-    # u1 = UpSampling2D((2, 2))(p3)
-    # u1 = Conv2D(128, (3, 3), activation='relu', padding='same')(u1)
-    # u1 = BatchNormalization()(u1)
-    # u1 = Concatenate()([u1, c3])  # Skip connection
-    
     u2 = UpSampling2D((2, 2))(p2)
     u2 = Conv2D(64, (3, 3), activation='relu', padding='same')(u2)
     u2 = BatchNormalization()(u2)
@@ -115,8 +116,9 @@ def segmentation_model(input_shape=NEW_INPUT_SHAPE, num_classes=4):
     
     # Final dense layer for class probabilities
     outputs = Conv2D(num_classes, (1, 1), activation='softmax')(final_downsampling)  # (1024, 4, 1)
-    # outputs = Lambda(lambda x: tf.squeeze(x, axis=2))(outputs)  # Remove leftover spatial dimensions (1024, 4)
-    outputs = Lambda(lambda x: jnp.squeeze(x, axis=2))(outputs)  # Remove leftover spatial dimensions (1024, 4)
+    # Reshape to remove the extra spatial dimension (axis 2)
+    outputs = Reshape((outputs.shape[1], outputs.shape[3]))(outputs)  # (None, 1024, 4)
+
     
     model = Model(inputs, outputs)
     return model
@@ -214,6 +216,8 @@ def train_rgb_cnn(static_keys, static_data_bundle, hybrid_data_bundle, max_split
         min_lr=1e-6          # Lower bound on the learning rate
     )
 
+    wasa = WASAMetric(sleep_accuracy=WASA_FRAC)
+
     # Split the data into training and testing sets
     for k_train, k_test in tqdm(split_maker.split(static_keys), desc="Next split", total=len(static_keys)):
         if (max_splits > 0) and (len(training_results) >= max_splits):
@@ -239,13 +243,11 @@ def train_rgb_cnn(static_keys, static_data_bundle, hybrid_data_bundle, max_split
             optimizer=keras.optimizers.AdamW(learning_rate=lr),
             metrics=[
                 'accuracy',
-                # keras.metrics.SensitivityAtSpecificity(
-                #     WASA_FRAC,
-                #     num_thresholds=200,
-                #     class_id=0,
-                #     name=f'WASA{WASA_PERCENT}',
-                #     dtype=None)
-                ]
+            ],
+            weighted_metrics=[
+                wasa
+            ],
+            
         )
 
         
@@ -263,7 +265,7 @@ def train_rgb_cnn(static_keys, static_data_bundle, hybrid_data_bundle, max_split
         training_results.append(cnn.fit(
             train_data, train_labels,
             epochs=epochs,
-            validation_data=(test_data, test_labels),
+            validation_data=(test_data, test_labels, test_sample_weights),
             batch_size=1, # 4 seems to be the max we can handle for cnn.predict(stack_of_spectrograms) on M3 Max w/ 64 gb of RAM
             sample_weight=train_sample_weights,
             callbacks=[cnn_tensorboard_callback, reduce_lr]
@@ -337,5 +339,5 @@ if __name__ == "__main__":
 
     # Suppress all warnings
     warnings.filterwarnings("ignore")
-    load_and_train(epochs=50, lr=1e-4)
+    load_and_train(epochs=30, lr=1e-3)
 
