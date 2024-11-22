@@ -1,6 +1,33 @@
-# %%
 import os
+import warnings
+from dataclasses import dataclass
+import time
+import datetime
+
 import numpy as np
+import matplotlib.pyplot as plt
+
+# %%
+from keras.layers import (
+    Input, Conv2D, MaxPooling2D, UpSampling2D, Concatenate, BatchNormalization, Activation,
+    AveragePooling2D, Reshape, GlobalAveragePooling2D, Lambda
+)
+from keras.models import Model
+import jax.numpy as jnp
+
+import keras
+import tensorflow as tf
+from keras.callbacks import TensorBoard, ReduceLROnPlateau
+from sklearn.model_selection import LeaveOneOut
+from tqdm import tqdm
+
+
+from examples.NHRC.nhrc_utils.analysis import stages_map
+from examples.NHRC.nhrc_utils.new_cnn import NEW_INPUT_SHAPE
+from src.constants import ACC_HZ
+
+
+from examples.NHRC.nhrc_utils.new_cnn import NEW_INPUT_SHAPE
 
 # Use jax backend
 # on macOS, this is one of the better out-of-the-box GPU options
@@ -11,17 +38,6 @@ os.environ["KERAS_BACKEND"] = "jax"
 from src.preprocess_and_save import do_preprocessing, big_specgram_process
 
 # %%
-# do_preprocessing(big_specgram_process)
-
-# %%
-import numpy as np
-stationary = np.load('/Users/eric/Engineering/Work/pisces/examples/NHRC/pre_processed_data/stationary/stationary_preprocessed_data_50.npy', allow_pickle=True).item()
-s0 = stationary['8173033']
-s0_spec = s0['spectrogram']
-s0_spec.shape
-
-# %%
-import matplotlib.pyplot as plt
 def add_rgb_legend(ax):
     """
     Adds an RGB legend indicating the mapping of colors to accelerometer axes.
@@ -62,45 +78,6 @@ def overlay_channels_fixed(spectrogram_tensor, mintile=5, maxtile=95):
     plt.title('Overlayed Spectrogram Channels as RGB')
     # plt.show()
 
-
-# %%
-overlay_channels_fixed(np.swapaxes(s0_spec, 0, 1))
-
-# %%
-def debug_normalization(spectrogram_tensor):
-    for i in range(3):
-        channel = spectrogram_tensor[:, :, i]
-        print(f"Channel {i} - Min: {channel.min()}, Max: {channel.max()}, Mean: {channel.mean()}")
-
-debug_normalization(s0_spec)
-
-# %%
-import numpy as np
-hybrid = np.load('/Users/eric/Engineering/Work/pisces/examples/NHRC/pre_processed_data/hybrid/hybrid_preprocessed_data_50.npy', allow_pickle=True).item()
-h0 = hybrid['8173033']
-h0_spec = h0['spectrogram']
-h0_spec.shape
-
-# %%
-debug_normalization(h0_spec)
-
-# %%
-overlay_channels_fixed(np.swapaxes(h0_spec, 0, 1), mintile=5, maxtile=89)
-
-# %% [markdown]
-# # Explore the model definition
-# This is for the grizzly part where we repeatedly fail to call the model on our specgrams, then eventually get it right.
-
-# %%
-# import tensorflow as tf
-from keras.layers import (
-    Input, Conv2D, MaxPooling2D, UpSampling2D, Concatenate, BatchNormalization, Activation,
-    AveragePooling2D, Reshape, GlobalAveragePooling2D, Lambda
-)
-from keras.models import Model
-import jax.numpy as jnp
-
-from examples.NHRC.nhrc_utils.new_cnn import NEW_INPUT_SHAPE
 
 def segmentation_model(input_shape=NEW_INPUT_SHAPE, num_classes=4):
     inputs = Input(shape=input_shape)
@@ -143,40 +120,6 @@ def segmentation_model(input_shape=NEW_INPUT_SHAPE, num_classes=4):
     
     model = Model(inputs, outputs)
     return model
-
-# %%
-stat_spec_full_stack = np.array([
-    stationary[k]['spectrogram'] for k in list(stationary.keys())
-])
-
-hybrid_spec_full_stack = np.array([
-    hybrid[k]['spectrogram'] for k in list(hybrid.keys())
-])
-
-print("Stationary stack shape: ", stat_spec_full_stack.shape)
-print("Hybrid stack shape: ", hybrid_spec_full_stack.shape)
-
-# %%
-from nhrc_utils.analysis import stages_map
-label_stack = np.array([
-    stages_map(stationary[k]['psg'][:, 1]) for k in list(stationary.keys())
-])
-
-
-# %%
-label_stack.shape
-
-# %%
-label_stack_use = label_stack[label_stack >= 0]
-
-stage_counts = np.zeros(4)
-for i in range(4):
-    stage_counts[i] = np.sum(label_stack_use == i)
-    print(f"Stage {i}: {stage_counts[i]}")
-
-stage_weights = 1 / stage_counts
-
-
 # %%
 def compute_stage_weights(label_stack):
     stage_counts = np.zeros(4)
@@ -190,29 +133,9 @@ def compute_stage_weights(label_stack):
 # # LOOX training loop
 
 # %%
-from dataclasses import dataclass
-import os
-import time
-import datetime
-
-import keras
-import tensorflow as tf
-from keras.callbacks import TensorBoard, ReduceLROnPlateau
-from sklearn.model_selection import LeaveOneOut
-from tqdm import tqdm
 
 
-from examples.NHRC.nhrc_utils.new_cnn import NEW_INPUT_SHAPE
-from src.constants import ACC_HZ
-
-
-# Define the learning rate scheduler callback
-reduce_lr = ReduceLROnPlateau(
-    monitor='val_loss',  # Metric to monitor
-    factor=0.5,          # Factor by which the learning rate will be reduced
-    patience=5,          # Number of epochs with no improvement after which learning rate will be reduced
-    min_lr=1e-6          # Lower bound on the learning rate
-)
+OUTPUT_SHAPE = (1024,)
 
 @dataclass
 class PreparedDataRGB:
@@ -220,7 +143,6 @@ class PreparedDataRGB:
     labels: tf.Tensor
     weights: tf.Tensor
 
-OUTPUT_SHAPE = (1024,)
 
 def rgb_gather_reshape(data_bundle: PreparedDataRGB, train_idx_tensor: tf.Tensor, input_shape: tuple = NEW_INPUT_SHAPE, output_shape: tuple = OUTPUT_SHAPE) -> tuple | None:
     input_shape = (-1, *input_shape)
@@ -275,11 +197,6 @@ def rgb_path_name(key):
 
 def train_rgb_cnn(static_keys, static_data_bundle, hybrid_data_bundle, max_splits: int = -1, epochs: int = 1, lr: float = 1e-4):
     
-    log_dir_cnn = f"./logs/rgb_cnn_{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}"
-
-    # Configure TensorBoard callback
-    cnn_tensorboard_callback = TensorBoard(
-        log_dir=log_dir_cnn, histogram_freq=1)
 
     split_maker = LeaveOneOut()
 
@@ -289,6 +206,13 @@ def train_rgb_cnn(static_keys, static_data_bundle, hybrid_data_bundle, max_split
     print(f"Training RGB CNN models...")
     WASA_PERCENT = 95
     WASA_FRAC = WASA_PERCENT / 100
+    # Define the learning rate scheduler callback
+    reduce_lr = ReduceLROnPlateau(
+        monitor='val_loss',  # Metric to monitor
+        factor=0.5,          # Factor by which the learning rate will be reduced
+        patience=5,          # Number of epochs with no improvement after which learning rate will be reduced
+        min_lr=1e-6          # Lower bound on the learning rate
+    )
 
     # Split the data into training and testing sets
     for k_train, k_test in tqdm(split_maker.split(static_keys), desc="Next split", total=len(static_keys)):
@@ -330,6 +254,11 @@ def train_rgb_cnn(static_keys, static_data_bundle, hybrid_data_bundle, max_split
         # make the labels binary, -1 -> 0
         # since we incorporate the mask in the sample weights,
         # we can just set the labels to 0
+        log_dir_cnn = f"./logs/rgb_cnn_{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}_split_{k_test[0]}"
+
+        # Configure TensorBoard callback
+        cnn_tensorboard_callback = TensorBoard(
+            log_dir=log_dir_cnn, histogram_freq=1)
 
         training_results.append(cnn.fit(
             train_data, train_labels,
@@ -401,32 +330,12 @@ def load_and_train(max_splits: int = -1, epochs: int = 1, lr: float = 1e-4):
 
     print(f"Training completed in {end_time - start_time:.2f} seconds")
 
-# %%
-seg = segmentation_model()
 
-# %%
-seg.compile()
+if __name__ == "__main__":
+    # %%
+    # do_preprocessing(big_specgram_process)
 
-# %%
-stat = load_preprocessed_data("stationary")
-stat_bundle = prepare_data(stat)
-
-# %%
-stat_bundle.spectrograms.shape
-
-# %%
-numpy_bytes = stat_bundle.spectrograms.numpy().nbytes
-print(f"Tensor size in bytes: {numpy_bytes} (log2(bytes): {np.log2(numpy_bytes)})")
-
-# %%
-import warnings
-
-# Suppress all warnings
-warnings.filterwarnings("ignore")
-
-load_and_train(epochs=100, lr=1e-4)
-
-# %%
-
-
+    # Suppress all warnings
+    warnings.filterwarnings("ignore")
+    load_and_train(epochs=50, lr=1e-4)
 
