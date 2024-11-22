@@ -90,6 +90,15 @@ def overlay_channels_fixed(spectrogram_tensor, mintile=5, maxtile=95):
     # plt.show()
 
 
+# import tensorflow as tf
+from keras.layers import (
+    Input, Conv2D, MaxPooling2D, UpSampling2D, Concatenate, BatchNormalization, Activation,
+    AveragePooling2D, Reshape, GlobalAveragePooling2D, Lambda
+)
+from keras.models import Model
+
+from examples.NHRC.nhrc_utils.new_cnn import NEW_INPUT_SHAPE
+
 def segmentation_model(input_shape=NEW_INPUT_SHAPE, num_classes=4):
     inputs = Input(shape=input_shape)
     
@@ -101,12 +110,24 @@ def segmentation_model(input_shape=NEW_INPUT_SHAPE, num_classes=4):
     c2 = Conv2D(128, (3, 3), activation='relu', padding='same')(p1)
     c2 = BatchNormalization()(c2)
     p2 = MaxPooling2D((2, 2))(c2)  # Further Downsampling
+    print("downsampled")
+    
+    # c3 = Conv2D(256, (3, 3), activation='relu', padding='same')(p2)
+    # c3 = BatchNormalization()(c3)
+    # p3 = MaxPooling2D((2, 2))(c3)  # Bottleneck
+    
+    # # Decoder
+    # u1 = UpSampling2D((2, 2))(p3)
+    # u1 = Conv2D(128, (3, 3), activation='relu', padding='same')(u1)
+    # u1 = BatchNormalization()(u1)
+    # u1 = Concatenate()([u1, c3])  # Skip connection
     
     u2 = UpSampling2D((2, 2))(p2)
     u2 = Conv2D(64, (3, 3), activation='relu', padding='same')(u2)
     u2 = BatchNormalization()(u2)
     u2 = Concatenate()([u2, c2])  # Skip connection
     u2 = UpSampling2D((2, 2))(u2)
+    print("upsampled")
     
     # Collapse frequency axis
     collapse = AveragePooling2D(pool_size=(1, u2.shape[2]))(u2)  # Collapse frequency (128 -> 1)
@@ -116,12 +137,13 @@ def segmentation_model(input_shape=NEW_INPUT_SHAPE, num_classes=4):
     
     # Final dense layer for class probabilities
     outputs = Conv2D(num_classes, (1, 1), activation='softmax')(final_downsampling)  # (1024, 4, 1)
-    # Reshape to remove the extra spatial dimension (axis 2)
-    outputs = Reshape((outputs.shape[1], outputs.shape[3]))(outputs)  # (None, 1024, 4)
-
+    # outputs = Lambda(lambda x: tf.squeeze(x, axis=2))(outputs)  # Remove leftover spatial dimensions (1024, 4)
+    outputs = outputs[..., 0]
     
     model = Model(inputs, outputs)
     return model
+
+
 # %%
 def compute_stage_weights(label_stack):
     stage_counts = np.zeros(4)
@@ -160,9 +182,12 @@ def rgb_gather_reshape(data_bundle: PreparedDataRGB, train_idx_tensor: tf.Tensor
         tf.gather(data_bundle.weights, train_idx_tensor),
         output_shape)
     
-    train_data_jnp = jnp.array(train_data)
-    train_labels_jnp = jnp.array(train_labels)
-    train_sample_weights_jnp = jnp.array(train_sample_weights)
+    # train_data_jnp = jnp.array(train_data)
+    # train_labels_jnp = jnp.array(train_labels)
+    # train_sample_weights_jnp = jnp.array(train_sample_weights)
+    train_data_jnp = train_data.numpy()
+    train_labels_jnp = train_labels.numpy()
+    train_sample_weights_jnp = train_sample_weights.numpy()
     # return train_data, train_labels, train_sample_weights
     return train_data_jnp, train_labels_jnp, train_sample_weights_jnp
 
@@ -216,7 +241,7 @@ def train_rgb_cnn(static_keys, static_data_bundle, hybrid_data_bundle, max_split
         min_lr=1e-6          # Lower bound on the learning rate
     )
 
-    wasa = WASAMetric(sleep_accuracy=WASA_FRAC)
+    # wasa = WASAMetric(sleep_accuracy=WASA_FRAC)
 
     # Split the data into training and testing sets
     for k_train, k_test in tqdm(split_maker.split(static_keys), desc="Next split", total=len(static_keys)):
@@ -239,14 +264,15 @@ def train_rgb_cnn(static_keys, static_data_bundle, hybrid_data_bundle, max_split
         print("segmentation model created")
 
         cnn.compile(
-            loss=keras.losses.SparseCategoricalCrossentropy(),
+            # loss=keras.losses.SparseCategoricalCrossentropy(),
+            loss='categorical_crossentropy',
             optimizer=keras.optimizers.AdamW(learning_rate=lr),
             metrics=[
                 'accuracy',
             ],
-            weighted_metrics=[
-                wasa
-            ],
+            # weighted_metrics=[
+            #     wasa
+            # ],
             
         )
 
@@ -265,7 +291,7 @@ def train_rgb_cnn(static_keys, static_data_bundle, hybrid_data_bundle, max_split
         training_results.append(cnn.fit(
             train_data, train_labels,
             epochs=epochs,
-            validation_data=(test_data, test_labels, test_sample_weights),
+            validation_data=(test_data, test_labels),
             batch_size=1, # 4 seems to be the max we can handle for cnn.predict(stack_of_spectrograms) on M3 Max w/ 64 gb of RAM
             sample_weight=train_sample_weights,
             callbacks=[cnn_tensorboard_callback, reduce_lr]
