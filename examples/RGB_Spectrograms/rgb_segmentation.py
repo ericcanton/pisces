@@ -374,7 +374,6 @@ def evaluate_and_save_test(
     return wasa_result
     
 
-
 def load_and_train(preprocessed_path: Path,
                    max_splits: int = -1, epochs: int = 1, lr: float = 1e-4, batch_size: int = 1, use_logits = False, n_classes=4, predictions_path: str = None, sleep_proba: bool = True, use_mel: bool = True) -> float:
 
@@ -396,12 +395,20 @@ def load_and_train(preprocessed_path: Path,
     start_time = time.time()
 
     # Define the learning rate scheduler callback
-    reduce_lr = ReduceLROnPlateau(
-        monitor='val_loss',  # Metric to monitor
-        factor=0.75,          # Factor by which the learning rate will be reduced
-        patience=3,         # Number of epochs with no improvement after which learning rate will be reduced
-        min_lr=lr / 8          # Lower bound on the learning rate
-    )
+    # Reduce by 0.75 every 5 epochs
+    def scheduler(epoch, lr):
+        if epoch % 5 == 0:
+            return lr * 0.75
+        else:
+            return lr
+    
+    reduce_lr = keras.callbacks.LearningRateScheduler(scheduler)
+    # ReduceLROnPlateau(
+    #     monitor='val_loss',  # Metric to monitor
+    #     factor=0.75,          # Factor by which the learning rate will be reduced
+    #     patience=3,         # Number of epochs with no improvement after which learning rate will be reduced
+    #     min_lr=lr / 8          # Lower bound on the learning rate
+    # )
 
 
     train_rgb_cnn(
