@@ -39,8 +39,14 @@ def test_inference(pretrained_model, language_specific_text_example):
             reference_spec = torch.rand(bs, lens, t_spec)
             reference_spec_lens = torch.tensor([lens]).long().expand(bs)
 
-    parsed_text //= 4
+    # convert to float
     parsed_text = parsed_text.float()
+    parsed_text /= 4
+    parsed_text += 0.1
+
+    # return to int64
+    parsed_text = parsed_text.long()
+
     X = model.generate_spectrogram(
         tokens=parsed_text, speaker=speaker_id, reference_spec=reference_spec, reference_spec_lens=reference_spec_lens
     )
