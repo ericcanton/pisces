@@ -1,6 +1,8 @@
 from pathlib import Path
+from typing import Tuple
 
 import numpy as np
+import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.functional as F
@@ -9,9 +11,10 @@ from nemo.core.config import hydra_runner
 from nemo.collections.tts.models import FastPitchModel, SpectrogramEnhancerModel
 
 
-fastpitch = FastPitchModel.from_pretrained(model_name="tts_en_fastpitch").freeze()
+fastpitch = FastPitchModel.from_pretrained(model_name="tts_en_fastpitch")
+fastpitch.freeze()
 
-class ConvEmbeddingModule(NeuralModule):
+class ConvEmbeddingModule(NeuralModule, pl.LightningModule):
     def __init__(
         self,
         embedding_dim: int = 128,
@@ -21,7 +24,7 @@ class ConvEmbeddingModule(NeuralModule):
         lr: float = 1e-3,
     ):
         super().__init__()
-        self.save_hyperparameters()
+        # self.save_hyperparameters()
 
         # An embedding layer to turn int64 tokens into float embeddings
         self.embedding = nn.Embedding(
@@ -110,7 +113,7 @@ class ConvEmbeddingModule(NeuralModule):
         return torch.optim.Adam(self.parameters(), lr=self.lr)
 
 
-class AdapterE(NeuralModule):
+class AdapterE(NeuralModule, pl.LightningModule):
     """
     A simple adapter that takes input embeddings (fixed),
     transforms them, and feeds them into a frozen image generator.
@@ -122,7 +125,7 @@ class AdapterE(NeuralModule):
         super().__init__()
         
         # Save hyperparameters, if desired
-        self.save_hyperparameters(ignore=["generator"])
+        # self.save_hyperparameters(ignore=["generator"])
         
         # 1) Store the generator and freeze it
         self.generator = specgram_generator
@@ -131,10 +134,8 @@ class AdapterE(NeuralModule):
 
         # 2) Define an adapter (simple linear in this example)
         self.adapter = ConvEmbeddingModule(embedding_dim = specgram_generator.cfg.symbols_embedding_dim)
-    
-    @property
-    def lr(self):
-        return self.embedding_model.lr
+
+        self.lr = 1e-3
 
     def forward(self, embeddings: torch.Tensor) -> torch.Tensor:
         """
@@ -157,6 +158,9 @@ class AdapterE(NeuralModule):
          - Compute loss vs. target_images
          - Return the loss, which backpropagates into the adapter only
         """
+        print(type(batch))
+        print(len(batch))
+        print(batch[0].shape)
         embeddings, target_images = batch  # both float tensors
         
         generated_images = self(embeddings)  # shape depends on generator output
@@ -187,7 +191,34 @@ def io_item_summary(item: dict):
     for key in item.keys():
         print(f"Key: {key}, shape: {item[key].shape}")
 
-def load_and_preprocess(path_to_prepro: Path, ) -> torch.Tensor:
+from torch.utils.data import DataLoader, TensorDataset, random_split
+class DataModuleClass(pl.LightningDataModule):
+    def __init__(self, input_X, input_y, batch_size: int = 10, ):
+        super().__init__()
+        self.constant = 2
+        self.batch_size = 10
+
+        self.x_train_tensor = torch.tensor(input_X)
+        self.y_train_tensor = torch.tensor(input_y)
+        self.n_samples = len(self.x_train_tensor)
+
+    def prepare_data(self):
+
+        training_dataset = TensorDataset(self.x_train_tensor, self.y_train_tensor)
+
+        self.training_dataset = training_dataset
+
+    def setup(self, stage=None):
+        data = self.training_dataset
+        self.train_data, self.val_data = random_split(data, [.8, .2])
+
+    def train_dataloader(self):
+        return DataLoader(self.train_data, num_workers=23, batch_size=2)
+
+    def val_dataloader(self):
+        return DataLoader(self.val_data, num_workers=23)
+
+def load_and_preprocess(path_to_prepro: Path, ) -> Tuple[torch.Tensor, torch.Tensor]:
 
     embedding_size = fastpitch.cfg.symbols_embedding_dim
     print("Embedding size:", embedding_size)
@@ -209,18 +240,24 @@ def load_and_preprocess(path_to_prepro: Path, ) -> torch.Tensor:
         }
         # io_item_summary(emb_data[key])
     
-    print("Max tokens:", max_tokens)
-
     # padd each embedding to max_tokens
     for key in emb_data.keys():
         emb_data[key]["X"] = torch.nn.functional.pad(emb_data[key]["X"], (0, max_tokens - emb_data[key]["X"].shape[1]))
-        io_item_summary(emb_data[key])
     
-    return emb_data
+    torch_X = torch.stack([torch.Tensor(item["X"]) for item in emb_data.values()])
+    torch_y = torch.stack([torch.Tensor(item["y"]) for item in emb_data.values()])
+    return torch_X, torch_y
 
 
 if __name__ == '__main__':
     path_to_prepro = Path('./preprocessed_data/stationary_preprocessed_data_WLDM_str.npy')
     emb_X_y = load_and_preprocess(path_to_prepro)
 
-    AdapterE(specgram_generator=fastpitch)
+    # TODO: utilize PyTorch Lightning for training
+    adapter = AdapterE(specgram_generator=fastpitch)
+
+    trainer = pl.Trainer(precision=16, accelerator="gpu", max_epochs=10, log_every_n_steps=5)
+
+    train_Xy = DataModuleClass(emb_X_y[0], emb_X_y[1])
+
+    trainer.fit(adapter, emb_X_y)
