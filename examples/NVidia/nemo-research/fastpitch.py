@@ -6,17 +6,23 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import pytorch_lightning as pl
+from torch.utils.data import Dataset, DataLoader
 import nemo
+from nemo.core import NeuralModule
+from nemo.core.config import hydra_runner
 from nemo.collections.tts.models import FastPitchModel, SpectrogramEnhancerModel
 
-fastpitch = FastPitchModel.from_pretrained(model_name="tts_en_fastpitch_for_asr_finetuning")
+fastpitch = FastPitchModel.from_pretrained(model_name="tts_en_fastpitch")
 # enhancer = SpectrogramEnhancerModel.from_pretrained(model_name="tts_en_spectrogram_enhancer_for_asr_finetuning")
 
 language = 'en'
 
-def test_inference(pretrained_model, language_specific_text_example):
-    model, language_id = pretrained_model
-    text = language_specific_text_example[language_id]
+
+def test_inference(pretrained_model, text):
+    model = pretrained_model
     parsed_text = model.parse(text)
 
     print("@@@@ parsed_text dtype:", parsed_text.dtype)
@@ -41,8 +47,10 @@ def test_inference(pretrained_model, language_specific_text_example):
 
     # convert to float
     parsed_text = parsed_text.float()
-    parsed_text /= 4
-    parsed_text += 0.1
+    print(">>>>>", type(parsed_text.shape[1]))
+    
+    cos_like_parsed = np.cos(np.linspace(0, 4 * np.pi, parsed_text.shape[1])).reshape(1, -1)
+    parsed_text = parsed_text * 0.1 + torch.Tensor(cos_like_parsed).to(parsed_text.device)
 
     # return to int64
     parsed_text = parsed_text.long()
@@ -87,7 +95,7 @@ def int_psg_to_WLDM(psg_ints: str) -> str:
             '5': 'M',
         }.get(s, '')
     # convert psg_ints to WLDM
-    psg_ints = psg_ints.split()
+    # psg_ints = psg_ints.split('')
     psg_strs = [mapper(s) for s in psg_ints]
     return ''.join(psg_strs)
 
@@ -98,7 +106,6 @@ if __name__ == '__main__':
     parser.add_argument('text', type=str, help='Text to synthesize')
     args = parser.parse_args()
 
-    language_specific_text_example = {'en': int_psg_to_WLDM(args.text)}
-    print("@@@@ Generating spectrogram for:\n@@@@\t", language_specific_text_example['en'])
-    test_inference((fastpitch, 'en'), language_specific_text_example=language_specific_text_example)# {'en': "a... b... c... d... e... f..."})
-    # test_inference((enhancer, 0), {'en': "Hello, how are you doing today?"})
+    psg_string = int_psg_to_WLDM(args.text)
+    print("@@@@ Generating spectrogram for:\n@@@@\t", psg_string)
+    test_inference(fastpitch, psg_string)
