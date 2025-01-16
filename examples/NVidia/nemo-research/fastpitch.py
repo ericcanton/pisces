@@ -1,3 +1,4 @@
+import os
 import random
 import argparse
 import pickle
@@ -64,7 +65,6 @@ def test_inference(pretrained_model, text):
     np_X = X.detach().cpu().numpy()
     np_parsed_text = parsed_text.detach().cpu().numpy()
 
-    np.save(f"{language}_spectrogram.npy", np_X)
 
     fig, ax = plt.subplots(nrows=2, ncols=1, figsize=(20, 10))
 
@@ -74,7 +74,10 @@ def test_inference(pretrained_model, text):
     ax[0].set_xlim(0, len(np_parsed_text[0]))
     ax[0].set_xticks(range(len(np_parsed_text[0])))
     ax[1].imshow(np_X[0], aspect='auto')
-    fig.savefig(f"{language}_spectrogram.png", dpi=200)
+
+    os.makedirs('images', exist_ok=True)
+    fig.savefig(f"images/{language}_spectrogram.png", dpi=200)
+    # np.save(f"{language}_spectrogram.npy", np_X)
 
     # enhanced_X = enhancer.normalize_spectrograms(X, torch.tensor([X.shape[2]]).to('cuda:0'))
     # print(type(enhanced_X))

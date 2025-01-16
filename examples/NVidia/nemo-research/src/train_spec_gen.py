@@ -5,10 +5,12 @@ import numpy as np
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
-import torch.functional as F
+import torch.nn.functional as F
 from nemo.core import NeuralModule
 from nemo.core.config import hydra_runner
 from nemo.collections.tts.models import FastPitchModel, SpectrogramEnhancerModel
+
+from numpy_to_pl_dataset import NumpyWrapper
 
 
 fastpitch = FastPitchModel.from_pretrained(model_name="tts_en_fastpitch")
@@ -26,11 +28,11 @@ class ConvEmbeddingModule(NeuralModule, pl.LightningModule):
         super().__init__()
         # self.save_hyperparameters()
 
-        # An embedding layer to turn int64 tokens into float embeddings
-        self.embedding = nn.Embedding(
-            num_embeddings=vocab_size,
-            embedding_dim=embedding_dim
-        )
+        # Convert int64 tokens to float
+        # self.embedding = nn.Embedding(
+        #     num_embeddings=vocab_size,
+        #     embedding_dim=embedding_dim
+        # )
 
         # 1D Conv: in_channels = embedding_dim, out_channels = conv_channels
         # Conv1d expects input of shape [B, C, L], so we'll transpose after embedding
@@ -55,15 +57,21 @@ class ConvEmbeddingModule(NeuralModule, pl.LightningModule):
             pred: int64 tensor of shape [B, N]
         """
         # x -> [B, N] (token IDs)
+        is_single_example = x.shape[0] == 1
 
         # 1) Embed to [B, N, embedding_dim]
-        x_emb = self.embedding(x)
+        x_emb = x.to(torch.float)#self.embedding(x)
 
         # 2) Rearrange to [B, embedding_dim, N] for Conv1D
-        x_emb = x_emb.transpose(1, 2)  # shape -> [B, E, N]
+        # x_emb = x_emb.transpose(1, 2)  # shape -> [B, E, N]
 
         # 3) Apply Conv1D -> [B, conv_channels, N]
         x_conv = self.conv(x_emb)
+
+        print("X conv shape:", x_conv.shape)
+
+        if is_single_example:
+            x_conv = x_conv.unsqueeze(0)
 
         # 4) Transpose back to [B, N, conv_channels]
         x_conv = x_conv.transpose(1, 2)
@@ -75,39 +83,6 @@ class ConvEmbeddingModule(NeuralModule, pl.LightningModule):
         pred = torch.argmax(logits, dim=-1)
 
         return pred
-
-    def training_step(self, batch, batch_idx):
-        """
-        Example training step:
-        Suppose `batch` = (input_tokens, target_tokens), both int64 of shape [B, N].
-        We'll forward the input_tokens, get predictions [B, N],
-        then compute some loss (e.g., CrossEntropy) against target_tokens.
-        """
-        input_tokens, target_tokens = batch
-
-        # shape: [B, N, vocab_size] if we want to compute CE directly on logits
-        # but our forward() returns argmax. So let's create an internal forward that returns logits for training:
-        logits = self.forward_for_loss(input_tokens)  # see below
-
-        # Reshape for CE: [B*N, vocab_size]
-        logits = logits.reshape(-1, logits.shape[-1])
-        target_tokens = target_tokens.view(-1)
-
-        loss = nn.functional.cross_entropy(logits, target_tokens)
-        self.log("train_loss", loss)
-        return loss
-
-    def forward_for_loss(self, x):
-        """ 
-        Same as forward, but returns the raw logits 
-        instead of the argmax for training.
-        """
-        x_emb = self.embedding(x)               # [B, N, E]
-        x_emb = x_emb.transpose(1, 2)           # [B, E, N]
-        x_conv = self.conv(x_emb)               # [B, conv_channels, N]
-        x_conv = x_conv.transpose(1, 2)         # [B, N, conv_channels]
-        logits = self.fc(x_conv)                # [B, N, vocab_size]
-        return logits
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.lr)
@@ -133,7 +108,8 @@ class AdapterE(NeuralModule, pl.LightningModule):
         # (Alternatively: self._freeze_module_params(self.generator))
 
         # 2) Define an adapter (simple linear in this example)
-        self.adapter = ConvEmbeddingModule(embedding_dim = specgram_generator.cfg.symbols_embedding_dim)
+        self.adapter = ConvEmbeddingModule(1)
+            #embedding_dim = specgram_generator.cfg.symbols_embedding_dim)
 
         self.lr = 1e-3
 
@@ -158,9 +134,6 @@ class AdapterE(NeuralModule, pl.LightningModule):
          - Compute loss vs. target_images
          - Return the loss, which backpropagates into the adapter only
         """
-        print(type(batch))
-        print(len(batch))
-        print(batch[0].shape)
         embeddings, target_images = batch  # both float tensors
         
         generated_images = self(embeddings)  # shape depends on generator output
@@ -191,33 +164,6 @@ def io_item_summary(item: dict):
     for key in item.keys():
         print(f"Key: {key}, shape: {item[key].shape}")
 
-from torch.utils.data import DataLoader, TensorDataset, random_split
-class DataModuleClass(pl.LightningDataModule):
-    def __init__(self, input_X, input_y, batch_size: int = 10, ):
-        super().__init__()
-        self.constant = 2
-        self.batch_size = 10
-
-        self.x_train_tensor = torch.tensor(input_X)
-        self.y_train_tensor = torch.tensor(input_y)
-        self.n_samples = len(self.x_train_tensor)
-
-    def prepare_data(self):
-
-        training_dataset = TensorDataset(self.x_train_tensor, self.y_train_tensor)
-
-        self.training_dataset = training_dataset
-
-    def setup(self, stage=None):
-        data = self.training_dataset
-        self.train_data, self.val_data = random_split(data, [.8, .2])
-
-    def train_dataloader(self):
-        return DataLoader(self.train_data, num_workers=23, batch_size=2)
-
-    def val_dataloader(self):
-        return DataLoader(self.val_data, num_workers=23)
-
 def load_and_preprocess(path_to_prepro: Path, ) -> Tuple[torch.Tensor, torch.Tensor]:
 
     embedding_size = fastpitch.cfg.symbols_embedding_dim
@@ -236,7 +182,7 @@ def load_and_preprocess(path_to_prepro: Path, ) -> Tuple[torch.Tensor, torch.Ten
         max_tokens = max(max_tokens, emb_psg.shape[1])
         emb_data[key] = {
             "X": emb_psg,
-            "y": key_data['spectrogram']
+            "y": key_data['spectrogram'][:, :80]
         }
         # io_item_summary(emb_data[key])
     
@@ -258,6 +204,6 @@ if __name__ == '__main__':
 
     trainer = pl.Trainer(precision=16, accelerator="gpu", max_epochs=10, log_every_n_steps=5)
 
-    train_Xy = DataModuleClass(emb_X_y[0], emb_X_y[1])
+    train_Xy = NumpyWrapper(emb_X_y[0], emb_X_y[1])
 
     trainer.fit(adapter, emb_X_y)
