@@ -4,7 +4,7 @@ import numpy as np
 
 import pisces
 
-output_dir = Path(__file__).parent / 'preprocessed_data'
+output_dir = Path(__file__).parent.parent / 'preprocessed_data'
 # change this for your machine
 # this is the output of RGB_Spectrograms/preprocessing.py or NHRC/preprocessing.py
 static_preprocesed = '/home/eric/Engineering/Work/pisces/examples/RGB_Spectrograms/pre_processed_data/stationary/stationary_preprocessed_data_50.npy'
@@ -27,7 +27,7 @@ def int_psg_to_WLDM(psg_ints: np.ndarray) -> str:
             3: 'D',
             4: 'D',
             5: 'M',
-        }.get(s, '')
+        }.get(s, '') * 4
     v_mapper = np.vectorize(mapper)
     # convert psg_ints to WLDM
     psg_strs = list(v_mapper(psg_ints))

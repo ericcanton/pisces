@@ -7,8 +7,8 @@ class NumpyDataset(Dataset):
     """A simple Dataset wrapping numpy arrays X (features) and y (labels)."""
     def __init__(self, X, y):
         # Convert numpy arrays to torch Tensors
-        self.X = torch.from_numpy(X).float()  # .float() or .long() depending on your data
-        self.y = torch.from_numpy(y).float()  # or .long() if it's class labels
+        self.X = torch.Tensor(X).float()  # .float() or .long() depending on your data
+        self.y = torch.Tensor(y).float()  # or .long() if it's class labels
 
     def __len__(self):
         return len(self.X)
@@ -47,10 +47,16 @@ class NumpyWrapper(pl.LightningDataModule):
         # If you have a separate test set, you can create self.test_dataset here as well.
 
     def train_dataloader(self):
-        return DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True)
+        return DataLoader(
+            self.train_dataset,
+            batch_size=self.batch_size,
+            shuffle=True)
 
     def val_dataloader(self):
-        return DataLoader(self.val_dataset, batch_size=self.batch_size, shuffle=False)
+        return DataLoader(
+            self.val_dataset,
+            batch_size=min(len(self.val_dataset), self.batch_size),
+            shuffle=False)
         
     def test_dataloader(self):
         # If you have a separate test set, return DataLoader for test dataset here
