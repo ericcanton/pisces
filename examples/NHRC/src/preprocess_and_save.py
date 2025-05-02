@@ -172,11 +172,11 @@ def do_preprocessing(process_data_fn=None, cache_dir: Path | str | None = None):
 
     sets = DataSetObject.find_data_sets(DATA_LOCATION)
     walch = sets['walch_et_al']
-    walch.parse_data_sets()
+    walch.parse_data()
     print(f"Found {len(walch.ids)} subjects")
 
     hybrid = sets['hybrid_motion']
-    hybrid.parse_data_sets()
+    hybrid.parse_data()
     print(f"Found {len(hybrid.ids)} subjects")
 
     subjects_to_exclude_walch = [
