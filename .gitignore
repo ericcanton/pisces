@@ -165,3 +165,5 @@ examples/Keras/raw.githubusercontent.com/*
 dreamt_training_logs/*
 examples/dreamt_acc/dreamt_training_logs/*
 *dreamt_results.npz
+examples/**/*_logs/
+examples/**/*.npz
