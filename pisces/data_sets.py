@@ -399,7 +399,14 @@ class DataSetObject:
             if not feature_path.exists():
                 warnings.warn(f"Feature path {feature_path} not found.")
                 continue
-            files = [f.name for f in feature_path.iterdir() if f.is_file()]
+            print(f"Parsing {feature_path}")
+            files = [
+                f.name
+                for f in feature_path.iterdir()
+                if f.is_file() or 
+                (f.is_symlink() and f.resolve().is_file())
+            ]
+            print(files)
             relevant_files = []
             for f in files:
                 ignore_start = any(f.startswith(prefix) for prefix in ignore_startswith)
