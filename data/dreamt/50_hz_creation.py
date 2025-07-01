@@ -12,7 +12,7 @@ x_col = "ACC_X"
 y_col = "ACC_Y"
 z_col = "ACC_Z"
 
-SAVE_HZ = 50
+SAVE_HZ = 64
 BASE_HZ = 64
 ACC_G_FACTOR = 1/64
 """
@@ -119,16 +119,47 @@ def resample_acc(acc_raw: pl.DataFrame, every_ms: int) -> pl.DataFrame:
         pl.col(y_col) * ACC_G_FACTOR,
         pl.col(z_col) * ACC_G_FACTOR)
 
+# Process CSV files from cleaned_dfs directory
+cleaned_dfs_path = Path("cleaned_dfs")
+cleaned_accelerometer_path = Path("cleaned_accelerometer")
+cleaned_psg_path = Path("cleaned_psg")
+
+os.makedirs(cleaned_accelerometer_path, exist_ok=True)
+os.makedirs(cleaned_psg_path, exist_ok=True)
+
+# Add logic to extract HR data
+cleaned_hr_path = Path("cleaned_hr")
+os.makedirs(cleaned_hr_path, exist_ok=True)
+
+for csv_file in cleaned_dfs_path.glob("*.csv"):
+    # Read the CSV file
+    df = pl.read_csv(csv_file)
+
+    # Extract accelerometer data
+    acc_df = df.select(["TIMESTAMP", "ACC_X", "ACC_Y", "ACC_Z"])
+    acc_output_path = cleaned_accelerometer_path / csv_file.name
+    acc_df.write_csv(acc_output_path)
+
+    # Extract PSG data
+    psg_df = df.select(["TIMESTAMP", "Sleep_Stage"])
+    psg_output_path = cleaned_psg_path / csv_file.name
+    psg_df.write_csv(psg_output_path)
+
+    # Extract HR data
+    hr_df = df.select(["TIMESTAMP", "HR"])
+    hr_output_path = cleaned_hr_path / csv_file.name
+    hr_df.write_csv(hr_output_path)
+
 # load each csv file inside ./cleaned_accelerometer and ./cleaned_psg
-# resample to 50hz
-# write into ../dreamt_50hz/cleaned_*
+# resample to N hz
+# write into ../dreamt_Nhz/cleaned_*
 
 sets = pds.DataSetObject.find_data_sets("../dreamt")
 dreamt_data = sets['dreamt']
 dreamt_data.parse_data()
 
-psg_path = Path("../dreamt_50hz/cleaned_psg")
-acc_path = Path("../dreamt_50hz/cleaned_accelerometer")
+psg_path = Path(f"../dreamt_{SAVE_HZ}hz/cleaned_psg")
+acc_path = Path(f"../dreamt_{SAVE_HZ}hz/cleaned_accelerometer")
 
 os.makedirs(psg_path, exist_ok=True)
 os.makedirs(acc_path, exist_ok=True)
@@ -161,3 +192,32 @@ for d_id in tqdm(dreamt_data.ids):
         .filter(pl.col(timestamp_col) >= 0)\
         .write_csv(
         acc_path / f"{d_id}.csv")
+    
+    # now do heart rate
+    d_id_hr = dreamt_data.get_feature_data("hr", d_id)
+    d_id_hr = d_id_hr.with_columns(
+        (pl.col(timestamp_col) * 1e3).cast(
+            pl.Datetime(
+                time_unit='ms',
+                time_zone="America/New_York"
+                )).alias(timestamp_col),
+    )      
+    d_id_hr_resampled = (
+        d_id_hr
+        .group_by_dynamic(
+            timestamp_col,
+            every=f"{int(1000 * 1 / SAVE_HZ)}ms",
+            closed="right",
+            include_boundaries=True,
+        )
+        .agg(pl.col("HR").max().round(1).alias("HR"))
+    )
+
+    d_id_hr_resampled = d_id_hr_resampled.select(
+        pl.col(timestamp_col).dt.epoch(time_unit='ms') / 1000,
+        pl.col("HR")
+    )
+    d_id_hr_resampled\
+        .filter(pl.col(timestamp_col) >= 0)\
+        .write_csv(
+            cleaned_hr_path / f"{d_id}.csv")
