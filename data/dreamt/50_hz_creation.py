@@ -43,12 +43,15 @@ Class meanings:
 
 def map_psg_to_numeric(psg_raw: pl.DataFrame) -> pl.DataFrame:
     """
-    Map the PSG data to numeric values.
+    Map the PSG data to numeric values. This matches Walch et al stages.
     """
     psg_raw = psg_raw.with_columns(
         pl.when(pl.col(psg_col) == "Missing").then(-1)
-        .when(pl.col(psg_col).is_in(["P", "W"])).then(1)
-        .when(pl.col(psg_col).is_in(["N1", "N2", "N3", "R"])).then(0)
+        .when(pl.col(psg_col).is_in(["P", "W"])).then(0)
+        .when(pl.col(psg_col) == "N1").then(1)
+        .when(pl.col(psg_col) == "N2").then(2)
+        .when(pl.col(psg_col) == "N3").then(3)
+        .when(pl.col(psg_col) == "R").then(5)
         .otherwise(-1).alias(psg_col)
     )
     return psg_raw
@@ -172,7 +175,7 @@ for d_id in tqdm(dreamt_data.ids, desc="Processing dreamt data", unit="dataset")
     try:
         d_id_psg = dreamt_data.get_feature_data("psg", d_id)
 
-        psg_s = 30
+        psg_s =15 
         psg_ms = psg_s * 1000
 
         d_id_binary = map_psg_to_numeric(d_id_psg)
